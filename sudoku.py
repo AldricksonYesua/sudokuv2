@@ -843,6 +843,10 @@ class SudokuApp:
         self.pila_eliminadas  = crear_pila()
         self.segundos_jugados = 0
 
+        # Siempre volver al tipo de reloj original de la config al cambiar de nivel
+        # (si el timer habia expirado y paso a cronometro, aqui se reinicia el timer)
+        self._tipo_reloj_activo = tipo_reloj
+
         if tipo_reloj == "timer":
             cfg = self.config.get("timer_multinivel", {}).get(siguiente, {})
             h = cfg.get("horas", 0)
@@ -1636,6 +1640,7 @@ class SudokuApp:
             "fijas": self.fijas,
             "segundos_totales": self.segundos_totales,
             "segundos_jugados": self.segundos_jugados,
+            "nivel_actual_multinivel": self.nivel_actual_multinivel,
         }
         if os.path.exists(ARCHIVO_GUARDADO):
             with open(ARCHIVO_GUARDADO, 'r', encoding='utf-8') as f:
@@ -1675,6 +1680,11 @@ class SudokuApp:
         self.tablero = [[int(v) if isinstance(v, str) else v for v in fila] for fila in tablero_raw]
         self._seg_totales_guardados = datos.get("segundos_totales", None)
         self._seg_jugados_guardados = datos.get("segundos_jugados", 0)
+        # Restaurar el nivel multinivel guardado para que el ciclo continue correctamente
+        if nivel == "multinivel":
+            self.nivel_actual_multinivel = datos.get("nivel_actual_multinivel", "facil")
+            self.label_nivel.config(
+                text="Nivel: multinivel ({})".format(self.nivel_actual_multinivel))
         for i in range(9):
             for j in range(9):
                 valor = self.tablero[i][j]
