@@ -9,6 +9,7 @@ from tkinter import messagebox
 import json
 import random
 import hashlib
+import pickle
 from collections import deque
 from datetime import datetime
 import os
@@ -21,7 +22,7 @@ NIVELES = ['facil', 'intermedio', 'dificil']
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
 ARCHIVO_CONFIG    = os.path.join(_BASE, 'sudoku2026configuracion.json')
-ARCHIVO_BITACORA  = os.path.join(_BASE, 'sudoku2026_bitacora_jugadas.json')
+ARCHIVO_BITACORA  = os.path.join(_BASE, 'sudoku2026_bitacora_jugadas.pkl')
 ARCHIVO_GUARDADO  = os.path.join(_BASE, 'sudoku2026juegoactual.json')
 ARCHIVO_USUARIOS  = os.path.join(_BASE, 'usuarios.json')
 
@@ -148,21 +149,108 @@ def cargar_configuracion():
 
     return config
 
-def guardar_en_bitacora(jugador, nivel, segundos, fecha_hora):
-    bitacora = {}
+# ==============================================================================
+# Mejora 5: Top X con Arbol Binario de Busqueda (ABB)
+# ==============================================================================
+
+class Partida:
+    # Guarda los datos de una partida terminada
+    def __init__(self, jugador, nivel, tiempo, fecha_hora):
+        self.jugador    = jugador
+        self.nivel      = nivel
+        self.tiempo     = tiempo       # segundos totales jugados
+        self.fecha_hora = fecha_hora   # string formato "%Y%m%dT%H%M%S"
+
+    def get_partida(self):
+        # Devuelve un string con los datos listos para mostrar en el PDF
+        hh = self.tiempo // 3600
+        mm = (self.tiempo % 3600) // 60
+        ss = self.tiempo % 60
+        tiempo_str = str(hh) + ":" + str(mm).zfill(2) + ":" + str(ss).zfill(2)
+        try:
+            dt = datetime.strptime(self.fecha_hora, "%Y%m%dT%H%M%S")
+            fecha_str = dt.strftime("%d-%m-%Y %H:%M:%S")
+        except ValueError:
+            fecha_str = self.fecha_hora
+        return self.jugador + "    " + tiempo_str + "    " + fecha_str
+
+
+class NodoABB:
+    # Cada nodo del arbol guarda una partida y apunta a sus hijos
+    def __init__(self, partida):
+        self.partida   = partida
+        self.izquierdo = None
+        self.derecho   = None
+
+
+class ABB:
+    # Arbol Binario de Busqueda ordenado por tiempo (menor queda a la izquierda)
+    def __init__(self):
+        self.raiz = None
+
+    def insertar_nodo(self, partida):
+        # Punto de entrada publico para insertar; llama al metodo recursivo
+        self.raiz = self._insertar(self.raiz, partida)
+
+    def _insertar(self, nodo, partida):
+        # Si llegamos a un hueco, creamos el nodo aqui
+        if nodo is None:
+            return NodoABB(partida)
+        # Menor tiempo va a la izquierda, mayor o igual a la derecha
+        if partida.tiempo < nodo.partida.tiempo:
+            nodo.izquierdo = self._insertar(nodo.izquierdo, partida)
+        else:
+            nodo.derecho = self._insertar(nodo.derecho, partida)
+        return nodo
+
+    def recorrer_arbol(self):
+        # Devuelve lista de strings en orden ascendente de tiempo (recorrido en-orden)
+        lista = []
+        self._en_orden(self.raiz, lista)
+        return lista
+
+    def _en_orden(self, nodo, lista):
+        if nodo is None:
+            return
+        self._en_orden(nodo.izquierdo, lista)
+        lista.append(nodo.partida.get_partida())
+        self._en_orden(nodo.derecho, lista)
+
+
+# --- funciones para cargar y guardar los tres ABB con pickle ---
+
+def cargar_abbs():
+    # Lee el pkl y devuelve los tres arboles. Si no existe, devuelve tres ABB vacios.
     if os.path.exists(ARCHIVO_BITACORA):
-        with open(ARCHIVO_BITACORA, 'r', encoding='utf-8') as f:
-            bitacora = json.load(f)
-    entrada = {
-        "dificultad": nivel,
-        "tiempo": segundos,
-        "fecha_hora": fecha_hora
+        with open(ARCHIVO_BITACORA, 'rb') as f:
+            datos = pickle.load(f)
+        return datos["facil"], datos["intermedio"], datos["dificil"]
+    return ABB(), ABB(), ABB()
+
+def guardar_abbs():
+    # Guarda los tres arboles globales en el pkl
+    datos = {
+        "facil":      abb_facil,
+        "intermedio": abb_intermedio,
+        "dificil":    abb_dificil
     }
-    if jugador not in bitacora:
-        bitacora[jugador] = []
-    bitacora[jugador].append(entrada)
-    with open(ARCHIVO_BITACORA, 'w', encoding='utf-8') as f:
-        json.dump(bitacora, f, indent=4)
+    with open(ARCHIVO_BITACORA, 'wb') as f:
+        pickle.dump(datos, f)
+
+def insertar_en_abb(jugador, nivel, segundos, fecha_hora):
+    # Crea la partida, la inserta en el ABB del nivel correcto y guarda el pkl
+    partida = Partida(jugador, nivel, segundos, fecha_hora)
+    if nivel == "facil":
+        abb_facil.insertar_nodo(partida)
+    elif nivel == "intermedio":
+        abb_intermedio.insertar_nodo(partida)
+    elif nivel == "dificil":
+        abb_dificil.insertar_nodo(partida)
+    guardar_abbs()
+
+
+# Variables globales de los tres arboles; se cargan del pkl al arrancar el programa
+abb_facil, abb_intermedio, abb_dificil = cargar_abbs()
 
 
 def _gen_valido(tablero, r, c, v):
@@ -690,7 +778,7 @@ class SudokuApp:
             nivel = self.config["nivel"]
             fecha_hora = datetime.now().strftime("%Y%m%dT%H%M%S")
             if self.config["reloj"]["tipo"] != "ninguno":
-                guardar_en_bitacora(nombre, nivel, self.segundos_jugados, fecha_hora)
+                insertar_en_abb(nombre, nivel, self.segundos_jugados, fecha_hora)
             messagebox.showinfo("FELICIDADES", "EXCELENTE! JUEGO COMPLETADO")
             self.juego_iniciado = False
             self.btn_iniciar.config(state="normal")
@@ -912,15 +1000,16 @@ class SudokuApp:
         estaba_activo = self.cronometro_activo
         self.cronometro_activo = False
 
-        if not os.path.exists(ARCHIVO_BITACORA):
+        # Verificar si hay al menos una partida en alguno de los tres arboles
+        hay_datos = (abb_facil.raiz is not None or
+                     abb_intermedio.raiz is not None or
+                     abb_dificil.raiz is not None)
+        if not hay_datos:
             messagebox.showinfo("TOP", "No hay partidas registradas aun")
             self.cronometro_activo = estaba_activo
             if estaba_activo:
                 self.actualizar_cronometro()
             return
-
-        with open(ARCHIVO_BITACORA, 'r', encoding='utf-8') as f:
-            bitacora = json.load(f)
 
         top_x = self.config["top x"]
 
@@ -948,21 +1037,13 @@ class SudokuApp:
         c.drawString(50, y, titulo)
         y -= 30
 
-        for nivel in ["dificil", "intermedio", "facil"]:
-            entradas = []
-            for jugador in bitacora:
-                for partida in bitacora[jugador]:
-                    if partida["dificultad"] == nivel:
-                        entradas.append((partida["tiempo"], jugador, partida["fecha_hora"]))
+        # Cada ABB ya devuelve las entradas ordenadas de menor a mayor tiempo
+        arboles = [("dificil", abb_dificil),
+                   ("intermedio", abb_intermedio),
+                   ("facil", abb_facil)]
 
-            # ordenar por tiempo de menor a mayor (burbuja simple)
-            for i in range(len(entradas)):
-                for j in range(i + 1, len(entradas)):
-                    if entradas[i][0] > entradas[j][0]:
-                        temp = entradas[i]
-                        entradas[i] = entradas[j]
-                        entradas[j] = temp
-
+        for nivel, abb in arboles:
+            entradas = abb.recorrer_arbol()   # lista de strings de get_partida()
             if top_x > 0:
                 entradas = entradas[:top_x]
 
@@ -979,17 +1060,7 @@ class SudokuApp:
                 y -= 14
             else:
                 for i in range(len(entradas)):
-                    tiempo, jugador, fecha_hora = entradas[i]
-                    hh = tiempo // 3600
-                    mm = (tiempo % 3600) // 60
-                    ss = tiempo % 60
-                    tiempo_str = str(hh) + ":" + str(mm).zfill(2) + ":" + str(ss).zfill(2)
-                    try:
-                        dt = datetime.strptime(fecha_hora, "%Y%m%dT%H%M%S")
-                        fecha_str = dt.strftime("%d-%m-%Y %H:%M:%S")
-                    except ValueError:
-                        fecha_str = fecha_hora
-                    linea = str(i + 1) + "-  " + jugador + "    " + tiempo_str + "    " + fecha_str
+                    linea = str(i + 1) + "-  " + entradas[i]
                     c.drawString(70, y, linea)
                     y -= 14
                     if y < 60:
