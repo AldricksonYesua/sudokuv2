@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import messagebox
 import json
 import random
+import hashlib
 from collections import deque
 from datetime import datetime
 import os
@@ -22,6 +23,7 @@ _BASE = os.path.dirname(os.path.abspath(__file__))
 ARCHIVO_CONFIG    = os.path.join(_BASE, 'sudoku2026configuracion.json')
 ARCHIVO_BITACORA  = os.path.join(_BASE, 'sudoku2026_bitacora_jugadas.json')
 ARCHIVO_GUARDADO  = os.path.join(_BASE, 'sudoku2026juegoactual.json')
+ARCHIVO_USUARIOS  = os.path.join(_BASE, 'usuarios.json')
 
 
 def crear_tablero_vacio():
@@ -334,9 +336,195 @@ def obtener_tablero_nuevo(nivel, ventana_padre=None):
     return puzzle
 
 
+# ==============================================================================
+# Sistema de cuentas de usuario
+# ==============================================================================
+
+def cargar_usuarios():
+    # Lee la lista de usuarios del archivo. Si no existe devuelve lista vacia.
+    if not os.path.exists(ARCHIVO_USUARIOS):
+        return []
+    with open(ARCHIVO_USUARIOS, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+def guardar_usuarios(usuarios):
+    # Escribe la lista completa de usuarios en el archivo.
+    with open(ARCHIVO_USUARIOS, 'w', encoding='utf-8') as f:
+        json.dump(usuarios, f, indent=4, ensure_ascii=False)
+
+def hashear_codigo(codigo):
+    # Encripta el codigo con SHA-256 para no guardarlo en texto plano.
+    return hashlib.sha256(codigo.encode('utf-8')).hexdigest()
+
+def mostrar_login(root):
+    """
+    Muestra la ventana de inicio de sesion antes de abrir el juego.
+    Devuelve el diccionario del usuario autenticado, o None si cierra sin ingresar.
+    Flujo: pedir correo -> si existe mandar codigo temporal -> verificar codigo
+                       -> si no existe preguntar si quiere registrarse
+    """
+    # Lista de un elemento para poder guardar el resultado desde una funcion interna
+    resultado = [None]
+
+    ventana = tk.Toplevel(root)
+    ventana.title("SUDOKU TEC - Iniciar Sesion")
+    ventana.resizable(False, False)
+    ventana.grab_set()
+
+    # ---- limpia la ventana para cambiar de pantalla sin abrir una nueva ----
+    def limpiar_ventana():
+        for widget in ventana.winfo_children():
+            widget.destroy()
+
+    # ---- PANTALLA 1: pedir correo ----
+    def pantalla_correo():
+        limpiar_ventana()
+        ventana.geometry("350x185")
+        tk.Label(ventana, text="S U D O K U  TEC", bg="red", fg="white",
+                 font=("Arial", 14, "bold"), pady=6).pack(fill="x")
+        tk.Label(ventana, text="Correo electronico:", font=("Arial", 10)).pack(pady=(12, 3))
+        entry_correo = tk.Entry(ventana, width=28, font=("Arial", 10))
+        entry_correo.pack()
+        entry_correo.focus()
+        tk.Button(ventana, text="CONTINUAR", bg="hotpink",
+                  font=("Arial", 10, "bold"), width=12,
+                  command=lambda: verificar_correo(entry_correo.get().strip())).pack(pady=12)
+
+    # ---- decide que hacer segun si el correo existe o no ----
+    def verificar_correo(correo):
+        if "@" not in correo or "." not in correo:
+            messagebox.showerror("ERROR", "Ingrese un correo electronico valido", parent=ventana)
+            return
+        usuarios = cargar_usuarios()
+        usuario_encontrado = None
+        for u in usuarios:
+            if u["correo"].lower() == correo.lower():
+                usuario_encontrado = u
+                break
+        if usuario_encontrado is None:
+            quiere_registrarse = messagebox.askyesno(
+                "Usuario no encontrado",
+                "El correo no esta registrado.\n¿Desea crear una cuenta?",
+                parent=ventana)
+            if quiere_registrarse:
+                pantalla_registro(correo)
+        else:
+            # Genera codigo temporal, lo guarda encriptado y lo muestra simulando envio
+            codigo_temp = str(random.randint(100000, 999999))
+            for u in usuarios:
+                if u["correo"].lower() == correo.lower():
+                    u["codigo_ingreso"] = hashear_codigo(codigo_temp)
+                    break
+            guardar_usuarios(usuarios)
+            messagebox.showinfo(
+                "Codigo de acceso",
+                "Codigo enviado a: {}\n\nCodigo: {}".format(correo, codigo_temp),
+                parent=ventana)
+            pantalla_codigo(correo)
+
+    # ---- PANTALLA 2: registro de cuenta nueva ----
+    def pantalla_registro(correo):
+        limpiar_ventana()
+        ventana.geometry("350x265")
+        tk.Label(ventana, text="Registro - SUDOKU TEC", bg="red", fg="white",
+                 font=("Arial", 13, "bold"), pady=6).pack(fill="x")
+        tk.Label(ventana, text="Correo: " + correo, font=("Arial", 9)).pack(pady=(8, 2))
+        tk.Label(ventana, text="Nombre de jugador (1-30 caracteres):",
+                 font=("Arial", 10)).pack()
+        entry_nombre = tk.Entry(ventana, width=25, font=("Arial", 10))
+        entry_nombre.pack(pady=3)
+        entry_nombre.focus()
+        tk.Label(ventana, text="Codigo de acceso (6 digitos numericos):",
+                 font=("Arial", 10)).pack(pady=(6, 2))
+        entry_codigo = tk.Entry(ventana, width=12, font=("Arial", 11),
+                                show="*", justify="center")
+        entry_codigo.pack()
+        tk.Button(ventana, text="REGISTRARSE", bg="green", fg="white",
+                  font=("Arial", 10, "bold"), width=12,
+                  command=lambda: guardar_registro(
+                      correo,
+                      entry_nombre.get().strip(),
+                      entry_codigo.get().strip())).pack(pady=10)
+        tk.Button(ventana, text="Regresar", font=("Arial", 9),
+                  command=pantalla_correo).pack()
+
+    # ---- valida y guarda el usuario nuevo ----
+    def guardar_registro(correo, nombre, codigo):
+        if len(nombre) < 1 or len(nombre) > 30:
+            messagebox.showerror("ERROR",
+                "El nombre debe tener entre 1 y 30 caracteres", parent=ventana)
+            return
+        if len(codigo) != 6 or not codigo.isdigit():
+            messagebox.showerror("ERROR",
+                "El codigo debe ser exactamente 6 digitos numericos", parent=ventana)
+            return
+        usuarios = cargar_usuarios()
+        # Verifica que el nombre no este en uso por otro jugador
+        for u in usuarios:
+            if u["nombre"].lower() == nombre.lower():
+                messagebox.showerror("ERROR",
+                    "El nombre '{}' ya esta en uso. Elija otro.".format(nombre),
+                    parent=ventana)
+                return
+        nuevo_usuario = {
+            "id":             len(usuarios) + 1,
+            "correo":         correo,
+            "codigo_ingreso": hashear_codigo(codigo),
+            "nombre":         nombre,
+            "fecha_creacion": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        usuarios.append(nuevo_usuario)
+        guardar_usuarios(usuarios)
+        messagebox.showinfo("REGISTRO EXITOSO",
+            "Cuenta creada.\nAhora ingrese con su correo y codigo.", parent=ventana)
+        pantalla_correo()
+
+    # ---- PANTALLA 3: ingresar el codigo temporal ----
+    def pantalla_codigo(correo):
+        limpiar_ventana()
+        ventana.geometry("350x215")
+        tk.Label(ventana, text="S U D O K U  TEC", bg="red", fg="white",
+                 font=("Arial", 14, "bold"), pady=6).pack(fill="x")
+        tk.Label(ventana, text="Ingrese el codigo enviado a:",
+                 font=("Arial", 10)).pack(pady=(12, 2))
+        tk.Label(ventana, text=correo, font=("Arial", 9, "italic")).pack()
+        entry_codigo = tk.Entry(ventana, width=12, font=("Arial", 14), justify="center")
+        entry_codigo.pack(pady=8)
+        entry_codigo.focus()
+        tk.Button(ventana, text="VERIFICAR", bg="hotpink",
+                  font=("Arial", 10, "bold"), width=12,
+                  command=lambda: verificar_codigo(correo, entry_codigo.get().strip())).pack(pady=5)
+        tk.Button(ventana, text="Regresar", font=("Arial", 9),
+                  command=pantalla_correo).pack()
+
+    # ---- compara el sha256 del codigo ingresado con el guardado ----
+    def verificar_codigo(correo, codigo):
+        if len(codigo) != 6 or not codigo.isdigit():
+            messagebox.showerror("ERROR",
+                "El codigo debe tener exactamente 6 digitos", parent=ventana)
+            return
+        usuarios = cargar_usuarios()
+        usuario_encontrado = None
+        for u in usuarios:
+            if u["correo"].lower() == correo.lower():
+                usuario_encontrado = u
+                break
+        if usuario_encontrado is None or hashear_codigo(codigo) != usuario_encontrado["codigo_ingreso"]:
+            messagebox.showerror("ERROR", "Codigo incorrecto. Intente de nuevo.", parent=ventana)
+            return
+        # Autenticacion exitosa: guardar usuario y cerrar ventana
+        resultado[0] = usuario_encontrado
+        ventana.destroy()
+
+    pantalla_correo()
+    root.wait_window(ventana)   # espera hasta que la ventana de login se cierre
+    return resultado[0]
+
+
 class SudokuApp:
-    def __init__(self, root):
-        self.root = root
+    def __init__(self, root, usuario):
+        self.root    = root
+        self.usuario = usuario   # dict con correo, nombre, fecha_creacion, etc.
         self.root.title("SUDOKU - TEC")
         self.root.resizable(False, False)
         self.juego_cargado = False
@@ -395,9 +583,11 @@ class SudokuApp:
             self.botones_tablero.append(fila_botones)
 
     def construir_panel_derecho(self):
-        tk.Label(self.frame_derecho, text="JUGADOR").pack()
-        self.entry_jugador = tk.Entry(self.frame_derecho, width=20)
-        self.entry_jugador.pack(pady=5)
+        tk.Label(self.frame_derecho, text="JUGADOR",
+                 font=("Arial", 9, "bold")).pack()
+        # El nombre viene del login, solo se muestra (no se puede editar)
+        tk.Label(self.frame_derecho, text=self.usuario["nombre"],
+                 font=("Arial", 11), relief="sunken", width=18).pack(pady=5)
 
         self.frame_elementos = tk.Frame(self.frame_derecho)
         self.frame_elementos.pack(pady=10)
@@ -496,7 +686,7 @@ class SudokuApp:
         self.pila_eliminadas = crear_pila()
         if juego_completo(self.tablero):
             self.cronometro_activo = False
-            nombre = self.entry_jugador.get()
+            nombre = self.usuario["nombre"]
             nivel = self.config["nivel"]
             fecha_hora = datetime.now().strftime("%Y%m%dT%H%M%S")
             if self.config["reloj"]["tipo"] != "ninguno":
@@ -579,20 +769,6 @@ class SudokuApp:
 
             
     def iniciar_juego(self):
-        nombre = self.entry_jugador.get()
-        if len(nombre) < 1 or len(nombre) > 30:
-            messagebox.showerror("Error", "El nombre del jugador debe tener entre 1 y 30 caracteres")
-            return
-        if os.path.exists(ARCHIVO_BITACORA):
-            with open(ARCHIVO_BITACORA, 'r', encoding='utf-8') as f:
-                _bitacora_check = json.load(f)
-            if nombre in _bitacora_check:
-                continuar = messagebox.askyesno(
-                    "NOMBRE EN USO",
-                    "El jugador '{}' ya tiene partidas registradas en el TOP.\n"
-                    "¿Desea continuar con este nombre?".format(nombre))
-                if not continuar:
-                    return
         tipo_reloj = self.config["reloj"]["tipo"]
         elementos_cfg = self.config.get("elementos", "numeros")
         if not self.juego_cargado:
@@ -1166,7 +1342,7 @@ class SudokuApp:
         if not self.juego_iniciado:
             messagebox.showerror("ERROR:", "EL JUEGO NO HA SIDO INICIADO")
             return
-        nombre = self.entry_jugador.get()
+        nombre = self.usuario["nombre"]
         nivel = self.config["nivel"]
         datos = {
             "jugador": nombre,
@@ -1190,14 +1366,10 @@ class SudokuApp:
     
         messagebox.showinfo("GUARDADO", "JUEGO GUARDADO EXITOSAMENTE")
     def cargar_juego(self):
-        
         if self.juego_iniciado:
             messagebox.showerror("ERROR:", "YA HAY UN JUEGO INICIADO")
             return
-        nombre = self.entry_jugador.get() 
-        if len(nombre) < 1 or len(nombre) > 30:
-            messagebox.showerror("Error", "El nombre del jugador debe tener entre 1 y 30 caracteres")
-            return 
+        nombre = self.usuario["nombre"]
         nivel = self.config["nivel"]
         clave = nombre + "_" + nivel
         
@@ -1236,6 +1408,15 @@ class SudokuApp:
         messagebox.showinfo("CARGADO", "JUEGO CARGADO EXITOSAMENTE. PRESIONE INICIAR JUEGO PARA CONTINUAR")
 if __name__ == "__main__":
     root = tk.Tk()
-    app = SudokuApp(root)
-    root.mainloop()
+    root.withdraw()   # esconder la ventana principal mientras aparece el login
+
+    usuario = mostrar_login(root)
+
+    if usuario is None:
+        # El usuario cerro la ventana sin autenticarse
+        root.destroy()
+    else:
+        root.deiconify()
+        app = SudokuApp(root, usuario)
+        root.mainloop()
 
