@@ -22,7 +22,6 @@ _BASE = os.path.dirname(os.path.abspath(__file__))
 ARCHIVO_CONFIG    = os.path.join(_BASE, 'sudoku2026configuracion.json')
 ARCHIVO_BITACORA  = os.path.join(_BASE, 'sudoku2026_bitacora_jugadas.json')
 ARCHIVO_GUARDADO  = os.path.join(_BASE, 'sudoku2026juegoactual.json')
-ARCHIVO_PARTIDAS  = os.path.join(_BASE, 'sudoku2026partidas.json')
 
 
 def crear_tablero_vacio():
@@ -146,16 +145,6 @@ def cargar_configuracion():
         json.dump(config, f, indent=4)
 
     return config
-
-def obtener_partida_aleatoria(nivel):
-    if not os.path.exists(ARCHIVO_PARTIDAS):
-        return None
-    with open(ARCHIVO_PARTIDAS, 'r', encoding='utf-8') as f:
-        partidas = json.load(f)
-    if nivel not in partidas or len(partidas[nivel]) == 0:
-        return None
-    indice = random.randint(0, len(partidas[nivel]) - 1)
-    return partidas[nivel][indice]
 
 def guardar_en_bitacora(jugador, nivel, segundos, fecha_hora):
     bitacora = {}
@@ -285,62 +274,64 @@ def _generar_tablero(vacios_obj):
         if _tiene_solucion_simple(puzzle):
             return puzzle
 
-def inicializar_partidas(root):
-    MIN_N = 5
-    VACIOS_OBJ = {"facil": 36, "intermedio": 47, "dificil": 52}
-    # Rangos validos de celdas vacias por nivel; fuera del rango = dificultad erronea
-    VACIOS_MIN = {"facil": 30, "intermedio": 44, "dificil": 48}
-    VACIOS_MAX = {"facil": 43, "intermedio": 55, "dificil": 63}
 
-    partidas = {}
-    if os.path.exists(ARCHIVO_PARTIDAS):
-        with open(ARCHIVO_PARTIDAS, 'r', encoding='utf-8') as f:
-            partidas = json.load(f)
+# Cuantas celdas vacias apunta a tener cada nivel al generar
+_VACIOS_POR_NIVEL = {"facil": 36, "intermedio": 47, "dificil": 52}
 
-    cambiado = False
-    for nivel in NIVELES:
-        if nivel not in partidas:
-            partidas[nivel] = []
-            cambiado = True
-            continue
-        buenos = []
-        for b in partidas[nivel]:
-            vacios = sum(1 for r in range(9) for c in range(9) if b["tablero"][r][c] == 0)
-            if VACIOS_MIN[nivel] <= vacios <= VACIOS_MAX[nivel] and _tiene_solucion_simple(b["tablero"]):
-                buenos.append(b)
-            else:
-                cambiado = True
-        partidas[nivel] = buenos
+# Historial de tableros usados durante la sesion, uno por nivel.
+# Cada deque guarda hasta 50 huellas; cuando se llena, el mas viejo sale solo.
+_historial_tableros = {
+    "facil":      deque(maxlen=50),
+    "intermedio": deque(maxlen=50),
+    "dificil":    deque(maxlen=50),
+}
 
-    falta = any(len(partidas[nivel]) < MIN_N for nivel in NIVELES)
-    if not falta:
-        if cambiado:
-            with open(ARCHIVO_PARTIDAS, 'w', encoding='utf-8') as f:
-                json.dump(partidas, f, indent=4)
-        return
 
-    loading = tk.Toplevel(root)
-    loading.title("Generando tableros")
-    loading.resizable(False, False)
-    loading.geometry("380x90")
-    loading.grab_set()
-    lbl = tk.Label(loading, text="Generando tableros de juego...",
-                   font=("Arial", 12), padx=20, pady=20)
-    lbl.pack()
-    loading.update()
+def _tablero_a_huella(puzzle):
+    # Convierte el tablero en un string plano para saber si ya fue usado antes.
+    return "".join(str(puzzle[r][c]) for r in range(9) for c in range(9))
 
-    for nivel in NIVELES:
-        while len(partidas[nivel]) < MIN_N:
-            lbl.config(text="Generando nivel {} ({}/{})...".format(
-                nivel.capitalize(), len(partidas[nivel]) + 1, MIN_N))
-            loading.update()
-            puzzle = _generar_tablero(VACIOS_OBJ[nivel])
-            partidas[nivel].append({"tablero": puzzle})
 
-    with open(ARCHIVO_PARTIDAS, 'w', encoding='utf-8') as f:
-        json.dump(partidas, f, indent=4)
+def obtener_tablero_nuevo(nivel, ventana_padre=None):
+    """
+    Genera un tablero en tiempo real para el nivel pedido.
+    Evita repetir tableros hasta que hayan pasado 50 distintos del mismo nivel.
+    Muestra una ventana de espera mientras genera para que el usuario sepa que no colgo.
+    """
+    vacios    = _VACIOS_POR_NIVEL.get(nivel, 36)
+    historial = _historial_tableros.get(nivel, deque(maxlen=50))
 
-    loading.destroy()
+    loading = None
+    if ventana_padre:
+        loading = tk.Toplevel(ventana_padre)
+        loading.title("Generando tablero")
+        loading.resizable(False, False)
+        loading.geometry("320x70")
+        loading.grab_set()
+        tk.Label(loading,
+                 text="Generando tablero {}...".format(nivel.capitalize()),
+                 font=("Arial", 11), padx=15, pady=20).pack()
+        loading.update()
+
+    intentos = 0
+    while True:
+        puzzle = _generar_tablero(vacios)
+        huella = _tablero_a_huella(puzzle)
+        # Si el tablero no esta en el historial reciente lo usamos directamente
+        if huella not in historial:
+            historial.append(huella)
+            break
+        intentos += 1
+        # Tras 100 intentos sin exito lo aceptamos igual; a estas alturas el
+        # historial ya tiene 50 distintos y es imposible evitar repeticion
+        if intentos > 100:
+            historial.append(huella)
+            break
+
+    if loading:
+        loading.destroy()
+
+    return puzzle
 
 
 class SudokuApp:
@@ -605,13 +596,10 @@ class SudokuApp:
         tipo_reloj = self.config["reloj"]["tipo"]
         elementos_cfg = self.config.get("elementos", "numeros")
         if not self.juego_cargado:
-            partida = obtener_partida_aleatoria(self.config["nivel"])
-            if partida is None:
-                messagebox.showerror("ERROR", "NO HAY PARTIDAS DE ESTE NIVEL")
-                return
+            puzzle = obtener_tablero_nuevo(self.config["nivel"], self.root)
             for i in range(9):
                 for j in range(9):
-                    valor = partida["tablero"][i][j]
+                    valor = puzzle[i][j]
                     self.tablero[i][j] = valor
                     if valor != 0:
                         self.fijas[i][j] = True
@@ -1248,9 +1236,6 @@ class SudokuApp:
         messagebox.showinfo("CARGADO", "JUEGO CARGADO EXITOSAMENTE. PRESIONE INICIAR JUEGO PARA CONTINUAR")
 if __name__ == "__main__":
     root = tk.Tk()
-    root.withdraw()
-    inicializar_partidas(root)
-    root.deiconify()
     app = SudokuApp(root)
     root.mainloop()
 
