@@ -108,7 +108,12 @@ def cargar_configuracion():
         },
         "top x": 3,
         "elementos": "numeros",
-        "elementos_custom": []
+        "elementos_custom": [],
+        "timer_multinivel": {
+            "facil":      {"horas": 0, "minutos": 30, "segundos": 0},
+            "intermedio": {"horas": 0, "minutos": 45, "segundos": 0},
+            "dificil":    {"horas": 1, "minutos": 0,  "segundos": 0}
+        }
     }
     if not os.path.exists(ARCHIVO_CONFIG):
         with open(ARCHIVO_CONFIG, 'w', encoding='utf-8') as f:
@@ -629,6 +634,7 @@ class SudokuApp:
         self.cronometro_activo = False
         self._tipo_reloj_activo = self.config["reloj"]["tipo"]
         self._timer_segundos_orig = 0
+        self.nivel_actual_multinivel = "facil"   # nivel en curso dentro del ciclo multinivel
 
         self.construir_interfaz()
 
@@ -777,15 +783,85 @@ class SudokuApp:
         self.pila_eliminadas = crear_pila()
         if juego_completo(self.tablero):
             self.cronometro_activo = False
-            nombre = self.usuario["nombre"]
-            nivel = self.config["nivel"]
+            nombre    = self.usuario["nombre"]
             fecha_hora = datetime.now().strftime("%Y%m%dT%H%M%S")
-            if self.config["reloj"]["tipo"] != "ninguno":
-                insertar_en_abb(nombre, nivel, self.segundos_jugados, fecha_hora)
-            messagebox.showinfo("FELICIDADES", "EXCELENTE! JUEGO COMPLETADO")
-            self.juego_iniciado = False
-            self.btn_iniciar.config(state="normal")
+            if self.config["nivel"] == "multinivel":
+                self._completar_nivel_multinivel(nombre, fecha_hora)
+            else:
+                if self.config["reloj"]["tipo"] != "ninguno":
+                    insertar_en_abb(nombre, self.config["nivel"],
+                                    self.segundos_jugados, fecha_hora)
+                messagebox.showinfo("FELICIDADES", "EXCELENTE! JUEGO COMPLETADO")
+                self.juego_iniciado = False
+                self.btn_iniciar.config(state="normal")
 
+
+    def _completar_nivel_multinivel(self, nombre, fecha_hora):
+        """
+        Se llama cuando el jugador termina un nivel en modo multinivel.
+        Guarda en el ABB, muestra mensaje, genera tablero del siguiente nivel
+        y reinicia el reloj para ese nivel.
+        """
+        tipo_reloj = self.config["reloj"]["tipo"]
+
+        # Guardar en el ABB del nivel que acaba de terminar
+        if tipo_reloj != "ninguno":
+            insertar_en_abb(nombre, self.nivel_actual_multinivel,
+                            self.segundos_jugados, fecha_hora)
+
+        # Calcular cual es el siguiente nivel en el ciclo
+        secuencia = ["facil", "intermedio", "dificil"]
+        idx_actual = secuencia.index(self.nivel_actual_multinivel)
+        siguiente  = secuencia[(idx_actual + 1) % 3]
+
+        messagebox.showinfo(
+            "NIVEL COMPLETADO",
+            "¡Nivel {} completado!\nPasando a {}...".format(
+                self.nivel_actual_multinivel.capitalize(),
+                siguiente.capitalize()))
+
+        self.nivel_actual_multinivel = siguiente
+        self.label_nivel.config(text="Nivel: multinivel ({})".format(siguiente))
+
+        # Generar un tablero nuevo para el siguiente nivel
+        puzzle = obtener_tablero_nuevo(siguiente, self.root)
+        for i in range(9):
+            for j in range(9):
+                valor = puzzle[i][j]
+                self.tablero[i][j] = valor
+                if valor != 0:
+                    self.fijas[i][j] = True
+                    self.botones_tablero[i][j].config(
+                        text=self._valor_a_texto(valor), bg="lightgray")
+                else:
+                    self.fijas[i][j] = False
+                    self.botones_tablero[i][j].config(text="", bg="white")
+
+        # Reiniciar pilas y contador de tiempo
+        self.pila_realizadas  = crear_pila()
+        self.pila_eliminadas  = crear_pila()
+        self.segundos_jugados = 0
+
+        if tipo_reloj == "timer":
+            cfg = self.config.get("timer_multinivel", {}).get(siguiente, {})
+            h = cfg.get("horas", 0)
+            m = cfg.get("minutos", 30)
+            s = cfg.get("segundos", 0)
+            self.segundos_totales       = h * 3600 + m * 60 + s
+            self._timer_segundos_orig   = self.segundos_totales
+        else:
+            self.segundos_totales = 0
+
+        hh = self.segundos_totales // 3600
+        mm = (self.segundos_totales % 3600) // 60
+        ss = self.segundos_totales % 60
+        self.label_horas.config(text=str(hh).zfill(2))
+        self.label_minutos.config(text=str(mm).zfill(2))
+        self.label_segs.config(text=str(ss).zfill(2))
+
+        if tipo_reloj in ("timer", "cronometro"):
+            self.cronometro_activo = True
+            self.actualizar_cronometro()
 
     def _poblar_panel_elementos(self):
         tipo = self.config.get("elementos", "numeros")
@@ -894,7 +970,14 @@ class SudokuApp:
                 return
         tipo_reloj = self.config["reloj"]["tipo"]
         if not self.juego_cargado:
-            puzzle = obtener_tablero_nuevo(self.config["nivel"], self.root)
+            # En multinivel siempre se empieza desde facil
+            if self.config["nivel"] == "multinivel":
+                self.nivel_actual_multinivel = "facil"
+                nivel_tablero = "facil"
+                self.label_nivel.config(text="Nivel: multinivel (facil)")
+            else:
+                nivel_tablero = self.config["nivel"]
+            puzzle = obtener_tablero_nuevo(nivel_tablero, self.root)
             for i in range(9):
                 for j in range(9):
                     valor = puzzle[i][j]
@@ -907,9 +990,15 @@ class SudokuApp:
                         self.botones_tablero[i][j].config(text="", bg="white")
             self.segundos_jugados = 0
             if tipo_reloj == "timer":
-                h = self.config["reloj"]["horas"]
-                m = self.config["reloj"]["minutos"]
-                s = self.config["reloj"]["segundos"]
+                if self.config["nivel"] == "multinivel":
+                    cfg = self.config.get("timer_multinivel", {}).get("facil", {})
+                    h = cfg.get("horas", 0)
+                    m = cfg.get("minutos", 30)
+                    s = cfg.get("segundos", 0)
+                else:
+                    h = self.config["reloj"]["horas"]
+                    m = self.config["reloj"]["minutos"]
+                    s = self.config["reloj"]["segundos"]
                 self.segundos_totales = h * 3600 + m * 60 + s
             else:
                 self.segundos_totales = 0
@@ -945,9 +1034,15 @@ class SudokuApp:
         self.btn_iniciar.config(state="disabled")
         self._tipo_reloj_activo = tipo_reloj
         if tipo_reloj == "timer":
-            _h = self.config["reloj"]["horas"]
-            _m = self.config["reloj"]["minutos"]
-            _s = self.config["reloj"]["segundos"]
+            if self.config["nivel"] == "multinivel":
+                cfg = self.config.get("timer_multinivel", {}).get("facil", {})
+                _h = cfg.get("horas", 0)
+                _m = cfg.get("minutos", 30)
+                _s = cfg.get("segundos", 0)
+            else:
+                _h = self.config["reloj"]["horas"]
+                _m = self.config["reloj"]["minutos"]
+                _s = self.config["reloj"]["segundos"]
             self._timer_segundos_orig = _h * 3600 + _m * 60 + _s
         self._sync_reloj_visible()
         if tipo_reloj in ("timer", "cronometro"):
@@ -1116,6 +1211,9 @@ class SudokuApp:
         for i in range(len(NIVELES)):
             tk.Radiobutton(ventana, text=NIVELES[i].capitalize(), variable=nivel_var,
                            value=NIVELES[i]).grid(row=i+1, column=0, padx=20, sticky="w")
+        # cuarto radio para el modo multinivel
+        tk.Radiobutton(ventana, text="Multinivel", variable=nivel_var,
+                       value="multinivel").grid(row=4, column=0, padx=20, sticky="w")
 
         tk.Label(ventana, text="Reloj:", font=("Arial", 11, "bold")).grid(
             row=0, column=1, padx=10, pady=5, sticky="w")
@@ -1164,18 +1262,44 @@ class SudokuApp:
             e.grid(row=idx // 3, column=idx % 3, padx=2, pady=2)
             entries_custom.append(e)
 
+        # Tabla de tiempos por nivel para el modo multinivel con timer
+        tk.Label(ventana, text="Timer multinivel (H / M / S):",
+                 font=("Arial", 9, "bold")).grid(row=5, column=1, sticky="w", padx=10)
+        frame_ml = tk.Frame(ventana)
+        frame_ml.grid(row=6, column=1, padx=10, pady=2, sticky="w")
+        tk.Label(frame_ml, text="",    width=9).grid(row=0, column=0)
+        tk.Label(frame_ml, text="H",   width=4).grid(row=0, column=1)
+        tk.Label(frame_ml, text="M",   width=4).grid(row=0, column=2)
+        tk.Label(frame_ml, text="S",   width=4).grid(row=0, column=3)
+        ml_cfg  = self.config.get("timer_multinivel", {})
+        ml_vars = {}   # {nivel: (IntVar_h, IntVar_m, IntVar_s)}
+        for idx_n, niv in enumerate(["facil", "intermedio", "dificil"]):
+            tk.Label(frame_ml, text=niv.capitalize(), width=9,
+                     anchor="w").grid(row=idx_n + 1, column=0)
+            cfg_n = ml_cfg.get(niv, {"horas": 0, "minutos": 30, "segundos": 0})
+            vh = tk.IntVar(value=cfg_n.get("horas", 0))
+            vm = tk.IntVar(value=cfg_n.get("minutos", 30))
+            vs = tk.IntVar(value=cfg_n.get("segundos", 0))
+            tk.Spinbox(frame_ml, from_=0, to=4,  textvariable=vh, width=4).grid(
+                row=idx_n + 1, column=1, padx=1)
+            tk.Spinbox(frame_ml, from_=0, to=59, textvariable=vm, width=4).grid(
+                row=idx_n + 1, column=2, padx=1)
+            tk.Spinbox(frame_ml, from_=0, to=59, textvariable=vs, width=4).grid(
+                row=idx_n + 1, column=3, padx=1)
+            ml_vars[niv] = (vh, vm, vs)
+
         tk.Label(ventana, text="Top X (0=todos):", font=("Arial", 11, "bold")).grid(
-            row=6, column=0, padx=10, pady=5, sticky="w")
+            row=7, column=0, padx=10, pady=5, sticky="w")
         topx_var = tk.IntVar(value=self.config["top x"])
         tk.Spinbox(ventana, from_=0, to=10, textvariable=topx_var, width=5).grid(
-            row=6, column=1, sticky="w")
+            row=7, column=1, sticky="w")
 
         def guardar():
             if reloj_var.get() == "timer":
                 h = timer_h.get()
                 m = timer_m.get()
                 s = timer_s.get()
-                if h == 0 and m == 0 and s == 0:
+                if h == 0 and m == 0 and s == 0 and nivel_var.get() != "multinivel":
                     messagebox.showerror("ERROR",
                         "El timer debe tener al menos un valor mayor a cero",
                         parent=ventana)
@@ -1195,13 +1319,21 @@ class SudokuApp:
                         parent=ventana)
                     return
                 self.config["elementos_custom"] = valores
-            self.config["nivel"]            = nivel_var.get()
-            self.config["reloj"]["tipo"]    = reloj_var.get()
-            self.config["reloj"]["horas"]   = timer_h.get()
-            self.config["reloj"]["minutos"] = timer_m.get()
+            # Guardar configuracion de timer multinivel
+            timer_ml_nuevo = {}
+            for niv in ["facil", "intermedio", "dificil"]:
+                vh, vm, vs = ml_vars[niv]
+                timer_ml_nuevo[niv] = {
+                    "horas": vh.get(), "minutos": vm.get(), "segundos": vs.get()
+                }
+            self.config["timer_multinivel"]  = timer_ml_nuevo
+            self.config["nivel"]             = nivel_var.get()
+            self.config["reloj"]["tipo"]     = reloj_var.get()
+            self.config["reloj"]["horas"]    = timer_h.get()
+            self.config["reloj"]["minutos"]  = timer_m.get()
             self.config["reloj"]["segundos"] = timer_s.get()
-            self.config["elementos"]        = elem_var.get()
-            self.config["top x"]            = topx_var.get()
+            self.config["elementos"]         = elem_var.get()
+            self.config["top x"]             = topx_var.get()
             with open(ARCHIVO_CONFIG, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=4, ensure_ascii=False)
             self.label_nivel.config(text="Nivel: " + self.config["nivel"])
@@ -1213,7 +1345,7 @@ class SudokuApp:
 
         tk.Button(ventana, text="GUARDAR", bg="green", fg="white",
                   font=("Arial", 11, "bold"), command=guardar).grid(
-                  row=7, column=0, columnspan=3, pady=10)
+                  row=8, column=0, columnspan=3, pady=10)
        
     def abrir_ayuda(self):
         manual = os.path.join(_BASE, "manual_de_usuario_sudoku.pdf")
