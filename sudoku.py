@@ -635,6 +635,7 @@ class SudokuApp:
         self._tipo_reloj_activo = self.config["reloj"]["tipo"]
         self._timer_segundos_orig = 0
         self.nivel_actual_multinivel = "facil"   # nivel en curso dentro del ciclo multinivel
+        self._clock_handle = None                # handle del root.after activo para poder cancelarlo
 
         self.construir_interfaz()
 
@@ -865,6 +866,10 @@ class SudokuApp:
         self.label_segs.config(text=str(ss).zfill(2))
 
         if tipo_reloj in ("timer", "cronometro"):
+            # Cancelar cualquier tick pendiente antes de iniciar la nueva cadena
+            if self._clock_handle:
+                self.root.after_cancel(self._clock_handle)
+                self._clock_handle = None
             self.cronometro_activo = True
             self.actualizar_cronometro()
 
@@ -950,7 +955,7 @@ class SudokuApp:
                         self.label_horas.config(text=str(horas).zfill(2))
                         self.label_minutos.config(text=str(minutos).zfill(2))
                         self.label_segs.config(text=str(segs).zfill(2))
-                        self.root.after(1000, self.actualizar_cronometro)
+                        self._clock_handle = self.root.after(1000, self.actualizar_cronometro)
                     else:
                         self.juego_iniciado = False
                         self.btn_iniciar.config(state="normal")
@@ -963,7 +968,7 @@ class SudokuApp:
             self.label_horas.config(text=str(horas).zfill(2))
             self.label_minutos.config(text=str(minutos).zfill(2))
             self.label_segs.config(text=str(segs).zfill(2))
-            self.root.after(1000, self.actualizar_cronometro)
+            self._clock_handle = self.root.after(1000, self.actualizar_cronometro)
 
             
     def iniciar_juego(self):
@@ -1040,7 +1045,8 @@ class SudokuApp:
         self._tipo_reloj_activo = tipo_reloj
         if tipo_reloj == "timer":
             if self.config["nivel"] == "multinivel":
-                cfg = self.config.get("timer_multinivel", {}).get("facil", {})
+                # Usa el nivel actual (puede ser facil/intermedio/dificil al cargar partida guardada)
+                cfg = self.config.get("timer_multinivel", {}).get(self.nivel_actual_multinivel, {})
                 _h = cfg.get("horas", 0)
                 _m = cfg.get("minutos", 30)
                 _s = cfg.get("segundos", 0)
@@ -1425,7 +1431,6 @@ class SudokuApp:
         L("- Biblioteca reportlab para el PDF del Top X:")
         L("    pip install reportlab", "codigo")
         L("- Sistema operativo Windows (usa os.startfile para abrir PDFs).")
-        L("- Archivo sudoku2026partidas.json en la misma carpeta que sudoku.py.")
         L("Para ejecutar:")
         L("    py sudoku.py\n", "codigo")
 
@@ -1442,16 +1447,11 @@ class SudokuApp:
         L("* El boton INICIAR JUEGO es el unico habilitado al abrir el programa.\n", "nota")
 
         L("4. Iniciar Juego", "seccion")
-        L("Paso 1 — Ingresar el nombre del jugador (1 a 30 caracteres).", "subsec")
-        L("Error si esta vacio o supera 30 caracteres:")
-        L("  El nombre del jugador debe tener entre 1 y 30 caracteres", "codigo")
-        L("Si el nombre ya tiene partidas en el TOP se muestra una advertencia para")
-        L("que el jugador decida si continua con ese nombre o lo cambia.")
+        L("Paso 1 — Iniciar sesion con su correo y codigo de acceso (pantalla de login).", "subsec")
         L("Paso 2 — Verificar la configuracion (nivel activo en panel derecho).", "subsec")
         L("Paso 3 — Presionar INICIAR JUEGO.", "subsec")
-        L("El programa carga una partida aleatoria segun el nivel.")
-        L("Casillas fijas en gris. Si no hay partidas para ese nivel:")
-        L("  NO HAY PARTIDAS DE ESTE NIVEL", "codigo")
+        L("El programa genera una partida aleatoria en tiempo real segun el nivel.")
+        L("Casillas fijas aparecen en gris claro.")
         L("Comportamiento del reloj:")
         L("  Cronometro  Arranca desde 00:00:00 y cuenta hacia arriba.")
         L("  Timer       Arranca desde H:M:S configurado y cuenta hacia abajo.")
@@ -1569,10 +1569,16 @@ class SudokuApp:
 
         L("17. Manejo de errores", "seccion")
         errores = [
-            ("El nombre del jugador debe tener entre 1 y 30 caracteres",
-             "Campo JUGADOR vacio o mayor a 30 caracteres al iniciar o cargar."),
-            ("NO HAY PARTIDAS DE ESTE NIVEL",
-             "No hay partidas registradas para el nivel seleccionado."),
+            ("Correo electronico invalido",
+             "El correo ingresado en el login no contiene @ o punto."),
+            ("El correo no esta registrado",
+             "Correo no encontrado; se ofrece crear cuenta nueva."),
+            ("Codigo incorrecto",
+             "El codigo de 6 digitos no coincide con el enviado al correo."),
+            ("El nombre debe tener entre 1 y 30 caracteres",
+             "Nombre de jugador vacio o mayor a 30 caracteres al registrarse."),
+            ("El codigo debe ser exactamente 6 digitos numericos",
+             "Codigo de registro no numerico o con distinto numero de digitos."),
             ("EL JUEGO NO HA INICIADO",
              "Clic en el tablero sin haber iniciado el juego."),
             ("FALTA SELECCIONAR UN ELEMENTO",
@@ -1592,13 +1598,11 @@ class SudokuApp:
             ("YA HAY UN JUEGO INICIADO",
              "Se presiono CARGAR JUEGO con una partida en curso."),
             ("NO TIENE UN JUEGO GUARDADO CON ESTA DIFICULTAD",
-             "No existe guardado para ese nombre y nivel."),
+             "No existe guardado para el usuario actual y nivel configurado."),
             ("El timer debe tener al menos un valor mayor a cero",
              "Timer seleccionado pero H, M y S estan en 0."),
             ("TIEMPO EXPIRADO. ¿DESEA CONTINUAR EL MISMO JUEGO (SI O NO)?",
              "El timer llego a 00:00:00. SI convierte a cronometro; NO termina el juego."),
-            ("NOMBRE EN USO — confirmacion de nombre",
-             "El nombre ingresado ya existe en el TOP. Se pregunta si desea usarlo igual."),
             ("No hay partidas registradas aun",
              "Bitacora vacia al presionar TOP X."),
             ("Falta la libreria reportlab",
