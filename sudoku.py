@@ -734,6 +734,7 @@ class SudokuApp:
 
         menu_botones = [
             ("CONFIGURAR", "orange",     self.abrir_configuracion),
+            ("PISTA",      "orange",     self.mostrar_pista),
             ("AYUDA",      "lightgreen", self.abrir_ayuda),
             ("ACERCA DE",  "lightblue",  self.abrir_acerca),
             ("SALIR",      "red",        self.root.quit),
@@ -1113,6 +1114,31 @@ class SudokuApp:
             self.label_horas.config(text="00")
             self.label_minutos.config(text="00")
             self.label_segs.config(text="00")
+
+    def mostrar_pista(self):
+        if not self.juego_iniciado:
+            messagebox.showerror("ERROR", "NO SE HA INICIADO EL JUEGO")
+            return
+
+        # Recorrer todas las celdas buscando una vacia con un valor valido
+        for fila in range(9):
+            for col in range(9):
+                if self.tablero[fila][col] == 0 and not self.fijas[fila][col]:
+                    for valor in range(1, 10):
+                        if (es_valido_fila(self.tablero, fila, valor) and
+                                es_valido_columna(self.tablero, col, valor) and
+                                es_valido_cuadricula(self.tablero, fila, col, valor)):
+                            # Resaltar la celda y mostrar la sugerencia
+                            self.botones_tablero[fila][col].config(bg="yellow")
+                            messagebox.showinfo(
+                                "PISTA",
+                                "PISTA: En la fila {} columna {} puedes colocar el elemento {}".format(
+                                    fila + 1, col + 1, self._valor_a_texto(valor)))
+                            # Restaurar color blanco al cerrar el messagebox
+                            self.botones_tablero[fila][col].config(bg="white")
+                            return
+
+        messagebox.showinfo("PISTA", "NO HAY PISTAS DISPONIBLES")
 
     def ver_top(self):
         estaba_activo = self.cronometro_activo
