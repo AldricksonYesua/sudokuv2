@@ -107,7 +107,8 @@ def cargar_configuracion():
             "segundos": 0
         },
         "top x": 3,
-        "elementos": "numeros"
+        "elementos": "numeros",
+        "elementos_custom": []
     }
     if not os.path.exists(ARCHIVO_CONFIG):
         with open(ARCHIVO_CONFIG, 'w', encoding='utf-8') as f:
@@ -755,8 +756,10 @@ class SudokuApp:
         elementos = self.config.get("elementos", "numeros")
         if elementos == "numeros":
             valor_int = int(self.elemento_seleccionado)
-        else:
+        elif elementos == "letras":
             valor_int = LETRAS.index(self.elemento_seleccionado) + 1
+        else:   # custom
+            valor_int = self.config.get("elementos_custom", []).index(self.elemento_seleccionado) + 1
         valido, mensaje = validar_jugada(self.tablero, self.fijas, fila, col, valor_int)
         if not valido:
             self.botones_tablero[fila][col].config(bg="red")
@@ -785,7 +788,17 @@ class SudokuApp:
 
 
     def _poblar_panel_elementos(self):
-        lista = NUMEROS if self.config.get("elementos", "numeros") == "numeros" else LETRAS
+        tipo = self.config.get("elementos", "numeros")
+        if tipo == "numeros":
+            lista = NUMEROS
+        elif tipo == "letras":
+            lista = LETRAS
+        elif tipo == "custom":
+            lista = self.config.get("elementos_custom", [])
+            if len(lista) != 9:
+                lista = NUMEROS   # si no estan definidos todavia, muestra numeros
+        else:
+            lista = NUMEROS
         fila_btn = 0
         col_btn = 0
         for val in lista:
@@ -805,6 +818,22 @@ class SudokuApp:
         self.botones_elementos = []
         self.elemento_seleccionado = None
         self._poblar_panel_elementos()
+
+    def _valor_a_texto(self, valor):
+        # Convierte un entero (1-9) al texto del elemento segun la configuracion activa
+        if valor == 0:
+            return ""
+        tipo = self.config.get("elementos", "numeros")
+        if tipo == "numeros":
+            return str(valor)
+        elif tipo == "letras":
+            return LETRAS[valor - 1]
+        elif tipo == "custom":
+            custom = self.config.get("elementos_custom", [])
+            if len(custom) == 9:
+                return custom[valor - 1]
+        return str(valor)
+
 
     def seleccionar_elemento(self, valor):
         self.elemento_seleccionado = valor
@@ -857,8 +886,13 @@ class SudokuApp:
 
             
     def iniciar_juego(self):
+        # Verificar que los elementos custom esten definidos si esa opcion esta activa
+        if self.config.get("elementos") == "custom":
+            if len(self.config.get("elementos_custom", [])) != 9:
+                messagebox.showerror("ERROR",
+                    "Defina los 9 elementos personalizados en Configurar antes de iniciar")
+                return
         tipo_reloj = self.config["reloj"]["tipo"]
-        elementos_cfg = self.config.get("elementos", "numeros")
         if not self.juego_cargado:
             puzzle = obtener_tablero_nuevo(self.config["nivel"], self.root)
             for i in range(9):
@@ -867,8 +901,7 @@ class SudokuApp:
                     self.tablero[i][j] = valor
                     if valor != 0:
                         self.fijas[i][j] = True
-                        texto_fija = str(valor) if elementos_cfg == "numeros" else LETRAS[valor - 1]
-                        self.botones_tablero[i][j].config(text=texto_fija, bg="lightgray")
+                        self.botones_tablero[i][j].config(text=self._valor_a_texto(valor), bg="lightgray")
                     else:
                         self.fijas[i][j] = False
                         self.botones_tablero[i][j].config(text="", bg="white")
@@ -884,10 +917,7 @@ class SudokuApp:
             for i in range(9):
                 for j in range(9):
                     valor = self.tablero[i][j]
-                    if elementos_cfg == "numeros":
-                        texto_val = str(valor) if valor != 0 else ""
-                    else:
-                        texto_val = LETRAS[valor - 1] if valor != 0 else ""
+                    texto_val = self._valor_a_texto(valor)
                     if self.fijas[i][j]:
                         self.botones_tablero[i][j].config(text=texto_val, bg="lightgray")
                     elif valor != 0:
@@ -938,9 +968,7 @@ class SudokuApp:
         if old_valor == 0:
             self.botones_tablero[fila][col].config(text="", bg="white")
         else:
-            elementos = self.config.get("elementos", "numeros")
-            texto_prev = str(old_valor) if elementos == "numeros" else LETRAS[old_valor - 1]
-            self.botones_tablero[fila][col].config(text=texto_prev, bg="white")
+            self.botones_tablero[fila][col].config(text=self._valor_a_texto(old_valor), bg="white")
         pila_push(self.pila_eliminadas, (fila, col, valor, old_valor))
 
     def rehacer_jugada(self):
@@ -952,12 +980,7 @@ class SudokuApp:
             return
         fila, col, valor, old_valor = pila_pop(self.pila_eliminadas)
         self.tablero[fila][col] = valor
-        elementos = self.config.get("elementos", "numeros")
-        if elementos == "numeros":
-            texto_mostrar = str(valor)
-        else:
-            texto_mostrar = LETRAS[valor - 1]
-        self.botones_tablero[fila][col].config(text=texto_mostrar, bg="white")
+        self.botones_tablero[fila][col].config(text=self._valor_a_texto(valor), bg="white")
         pila_push(self.pila_realizadas, (fila, col, valor, old_valor))
 
     def borrar_juego(self): 
@@ -1118,18 +1141,34 @@ class SudokuApp:
 
         tk.Label(ventana, text="Elementos:", font=("Arial", 11, "bold")).grid(
             row=0, column=2, padx=10, pady=5, sticky="w")
-        elem_var = tk.StringVar(value=self.config["elementos"])
-        tk.Radiobutton(ventana, text="numeros", variable=elem_var,
+        elem_var = tk.StringVar(value=self.config.get("elementos", "numeros"))
+        tk.Radiobutton(ventana, text="Numeros", variable=elem_var,
                        value="numeros").grid(row=1, column=2, padx=20, sticky="w")
-        tk.Radiobutton(ventana, text="letras", variable=elem_var,
+        tk.Radiobutton(ventana, text="Letras", variable=elem_var,
                        value="letras").grid(row=2, column=2, padx=20, sticky="w")
+        tk.Radiobutton(ventana, text="Definido por jugador", variable=elem_var,
+                       value="custom").grid(row=3, column=2, padx=20, sticky="w")
 
-        
+        # Campos para los 9 elementos personalizados (siempre visibles en col 2)
+        tk.Label(ventana, text="Mis 9 elementos (max 2 chars c/u):",
+                 font=("Arial", 8)).grid(row=4, column=2, sticky="w", padx=10)
+        frame_custom = tk.Frame(ventana)
+        frame_custom.grid(row=5, column=2, padx=10, pady=2, sticky="w")
+        custom_actual = self.config.get("elementos_custom", [])
+        if len(custom_actual) < 9:
+            custom_actual = (custom_actual + [""] * 9)[:9]
+        entries_custom = []
+        for idx in range(9):
+            e = tk.Entry(frame_custom, width=4, font=("Arial", 10))
+            e.insert(0, custom_actual[idx])
+            e.grid(row=idx // 3, column=idx % 3, padx=2, pady=2)
+            entries_custom.append(e)
+
         tk.Label(ventana, text="Top X (0=todos):", font=("Arial", 11, "bold")).grid(
-            row=5, column=0, padx=10, pady=5, sticky="w")
+            row=6, column=0, padx=10, pady=5, sticky="w")
         topx_var = tk.IntVar(value=self.config["top x"])
         tk.Spinbox(ventana, from_=0, to=10, textvariable=topx_var, width=5).grid(
-            row=5, column=1, sticky="w")
+            row=6, column=1, sticky="w")
 
         def guardar():
             if reloj_var.get() == "timer":
@@ -1138,26 +1177,43 @@ class SudokuApp:
                 s = timer_s.get()
                 if h == 0 and m == 0 and s == 0:
                     messagebox.showerror("ERROR",
-                        "El timer debe tener al menos un valor mayor a cero")
+                        "El timer debe tener al menos un valor mayor a cero",
+                        parent=ventana)
                     return
-            self.config["nivel"]          = nivel_var.get()
-            self.config["reloj"]["tipo"]  = reloj_var.get()
-            self.config["reloj"]["horas"] = timer_h.get()
+            # Validar elementos personalizados si esa opcion esta seleccionada
+            if elem_var.get() == "custom":
+                valores = [e.get().strip() for e in entries_custom]
+                for v in valores:
+                    if len(v) == 0 or len(v) > 2:
+                        messagebox.showerror("ERROR",
+                            "Cada elemento debe tener entre 1 y 2 caracteres",
+                            parent=ventana)
+                        return
+                if len(set(valores)) != 9:
+                    messagebox.showerror("ERROR",
+                        "Los 9 elementos deben ser distintos entre si",
+                        parent=ventana)
+                    return
+                self.config["elementos_custom"] = valores
+            self.config["nivel"]            = nivel_var.get()
+            self.config["reloj"]["tipo"]    = reloj_var.get()
+            self.config["reloj"]["horas"]   = timer_h.get()
             self.config["reloj"]["minutos"] = timer_m.get()
             self.config["reloj"]["segundos"] = timer_s.get()
-            self.config["elementos"]      = elem_var.get()
-            self.config["top x"]          = topx_var.get()
+            self.config["elementos"]        = elem_var.get()
+            self.config["top x"]            = topx_var.get()
             with open(ARCHIVO_CONFIG, 'w', encoding='utf-8') as f:
-                json.dump(self.config, f, indent=4)
+                json.dump(self.config, f, indent=4, ensure_ascii=False)
             self.label_nivel.config(text="Nivel: " + self.config["nivel"])
             self.reconstruir_panel_elementos()
             self._sync_reloj_visible()
-            messagebox.showinfo("GUARDADO", "Configuracion guardada exitosamente")
+            messagebox.showinfo("GUARDADO", "Configuracion guardada exitosamente",
+                                parent=ventana)
             ventana.destroy()
 
         tk.Button(ventana, text="GUARDAR", bg="green", fg="white",
                   font=("Arial", 11, "bold"), command=guardar).grid(
-                  row=6, column=0, columnspan=3, pady=10)
+                  row=7, column=0, columnspan=3, pady=10)
        
     def abrir_ayuda(self):
         manual = os.path.join(_BASE, "manual_de_usuario_sudoku.pdf")
@@ -1461,14 +1517,10 @@ class SudokuApp:
         self.tablero = [[int(v) if isinstance(v, str) else v for v in fila] for fila in tablero_raw]
         self._seg_totales_guardados = datos.get("segundos_totales", None)
         self._seg_jugados_guardados = datos.get("segundos_jugados", 0)
-        elementos_cfg = self.config.get("elementos", "numeros")
         for i in range(9):
             for j in range(9):
                 valor = self.tablero[i][j]
-                if elementos_cfg == "numeros":
-                    texto_val = str(valor) if valor != 0 else ""
-                else:
-                    texto_val = LETRAS[valor - 1] if valor != 0 else ""
+                texto_val = self._valor_a_texto(valor)
                 if self.fijas[i][j]:
                     self.botones_tablero[i][j].config(text=texto_val, bg="lightgray")
                 elif valor != 0:
