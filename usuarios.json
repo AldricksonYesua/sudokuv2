@@ -2,8 +2,22 @@
     {
         "id": 1,
         "correo": "aldrickson@gmail.com",
-        "codigo_ingreso": "00e444feffbdd26ad09355888ccff4b447754950446effdff4bfc317e56f0cdd",
+        "codigo_ingreso": "bbe700e7a7d4e95c291ba566ae6d8c18c3e55b9bcbc4431bc77613dc8d87d271",
         "nombre": "Aldrickson",
         "fecha_creacion": "2026-06-26 19:12:34"
+    },
+    {
+        "id": 2,
+        "correo": "aldricksond@gmail.com",
+        "codigo_ingreso": "85c7e5d6a2bc02a1f5b0da03d8b3deaee4a62ebbf900ec4a38b091bac7af3229",
+        "nombre": "Yesua",
+        "fecha_creacion": "2026-06-27 18:58:34"
+    },
+    {
+        "id": 3,
+        "correo": "aldricksontijerino04@gmail.com",
+        "codigo_ingreso": "19d7838f9b16bcb1ddbb317f8c6b4c802493fc92b97dec331779c932970a6002",
+        "nombre": "Yesuita",
+        "fecha_creacion": "2026-06-27 19:40:57"
     }
 ]

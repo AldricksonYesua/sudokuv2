@@ -13,6 +13,8 @@ import pickle
 from collections import deque
 from datetime import datetime
 import os
+import smtplib
+from email.mime.text import MIMEText
 
 
 NUMEROS = ['1','2','3','4','5','6','7','8','9']
@@ -25,6 +27,22 @@ ARCHIVO_CONFIG    = os.path.join(_BASE, 'sudoku2026configuracion.json')
 ARCHIVO_BITACORA  = os.path.join(_BASE, 'sudoku2026_bitacora_jugadas.pkl')
 ARCHIVO_GUARDADO  = os.path.join(_BASE, 'sudoku2026juegoactual.json')
 ARCHIVO_USUARIOS  = os.path.join(_BASE, 'usuarios.json')
+
+CORREO_REMITENTE = 'aldricksond@gmail.com'
+CONTRASENA_APP   = 'usroyddpfrsaeukh'
+
+
+def enviar_codigo_correo(destinatario, codigo):
+    mensaje = MIMEText("Tu codigo de acceso es: {}".format(codigo))
+    mensaje["Subject"] = "Codigo de acceso SUDOKU TEC"
+    mensaje["From"]    = CORREO_REMITENTE
+    mensaje["To"]      = destinatario
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as servidor:
+            servidor.login(CORREO_REMITENTE, CONTRASENA_APP)
+            servidor.sendmail(CORREO_REMITENTE, destinatario, mensaje.as_string())
+    except Exception:
+        messagebox.showerror("Error", "No se pudo enviar el correo. Verifique su conexion.")
 
 
 def crear_tablero_vacio():
@@ -328,28 +346,6 @@ def _gen_contar(tablero, lim=2):
     _sol([row[:] for row in tablero])
     return cont[0]
 
-def _tiene_solucion_simple(tablero):
-    # Solver de backtracking simple (sin MRV) — verificación independiente de _gen_contar
-    t = [row[:] for row in tablero]
-    def _s(t):
-        for r in range(9):
-            for c in range(9):
-                if t[r][c] == 0:
-                    used = set(t[r]) | {t[i][c] for i in range(9)}
-                    rf, rc = (r // 3) * 3, (c // 3) * 3
-                    for i in range(rf, rf + 3):
-                        for j in range(rc, rc + 3):
-                            used.add(t[i][j])
-                    for n in range(1, 10):
-                        if n not in used:
-                            t[r][c] = n
-                            if _s(t):
-                                return True
-                            t[r][c] = 0
-                    return False
-        return True
-    return _s(t)
-
 def _generar_tablero(vacios_obj):
     while True:
         sol = [[0] * 9 for _ in range(9)]
@@ -367,7 +363,7 @@ def _generar_tablero(vacios_obj):
                 removidos += 1
             else:
                 puzzle[r][c] = val
-        if _tiene_solucion_simple(puzzle):
+        if _gen_contar(puzzle) == 1:
             return puzzle
 
 
@@ -510,10 +506,7 @@ def mostrar_login(root):
                     u["codigo_ingreso"] = hashear_codigo(codigo_temp)
                     break
             guardar_usuarios(usuarios)
-            messagebox.showinfo(
-                "Codigo de acceso",
-                "Codigo enviado a: {}\n\nCodigo: {}".format(correo, codigo_temp),
-                parent=ventana)
+            enviar_codigo_correo(correo, codigo_temp)
             pantalla_codigo(correo)
 
     # ---- PANTALLA 2: registro de cuenta nueva ----
