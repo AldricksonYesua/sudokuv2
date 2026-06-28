@@ -19,5 +19,12 @@
         "codigo_ingreso": "a80da54b37452892f9fdc7178e113d5756e8684ee9e4fdaf2a01f817367262af",
         "nombre": "Yesuita",
         "fecha_creacion": "2026-06-27 19:40:57"
+    },
+    {
+        "id": 4,
+        "correo": "yesuadiaz04@gmail.com",
+        "codigo_ingreso": "7d974379cd03f39498e3249f5d790f1cb3eba78f02cbee7c248992ddcf4df5ac",
+        "nombre": "Aldrick",
+        "fecha_creacion": "2026-06-28 11:30:13"
     }
 ]

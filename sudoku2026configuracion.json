@@ -1,28 +1,28 @@
 {
     "nivel": "multinivel",
     "reloj": {
-        "tipo": "cronometro",
+        "tipo": "timer",
         "horas": 0,
         "minutos": 0,
-        "segundos": 0
+        "segundos": 3
     },
     "top x": 3,
-    "elementos": "numeros",
+    "elementos": "letras",
     "elementos_custom": [],
     "timer_multinivel": {
         "facil": {
             "horas": 0,
-            "minutos": 30,
+            "minutos": 20,
             "segundos": 0
         },
         "intermedio": {
             "horas": 0,
-            "minutos": 45,
+            "minutos": 20,
             "segundos": 0
         },
         "dificil": {
-            "horas": 1,
-            "minutos": 0,
+            "horas": 0,
+            "minutos": 20,
             "segundos": 0
         }
     }
