@@ -644,6 +644,7 @@ class SudokuApp:
         self._timer_segundos_orig = 0
         self.nivel_actual_multinivel = "facil"   # nivel en curso dentro del ciclo multinivel
         self._clock_handle = None                # handle del root.after activo para poder cancelarlo
+        self._multinivel_nivel_preparado = False  # True cuando se completo un nivel y el siguiente ya esta en pantalla
 
         self.construir_interfaz()
 
@@ -876,13 +877,9 @@ class SudokuApp:
         self.label_minutos.config(text=str(mm).zfill(2))
         self.label_segs.config(text=str(ss).zfill(2))
 
-        if tipo_reloj in ("timer", "cronometro"):
-            # Cancelar cualquier tick pendiente antes de iniciar la nueva cadena
-            if self._clock_handle:
-                self.root.after_cancel(self._clock_handle)
-                self._clock_handle = None
-            self.cronometro_activo = True
-            self.actualizar_cronometro()
+        self._multinivel_nivel_preparado = True
+        self.juego_iniciado = False
+        self.btn_iniciar.config(state="normal")
 
     def _poblar_panel_elementos(self):
         tipo = self.config.get("elementos", "numeros")
@@ -984,6 +981,29 @@ class SudokuApp:
 
             
     def iniciar_juego(self):
+        if self._multinivel_nivel_preparado:
+            self._multinivel_nivel_preparado = False
+            self.juego_iniciado = True
+            self.btn_iniciar.config(state="disabled")
+            tipo_reloj = self.config["reloj"]["tipo"]
+            self._tipo_reloj_activo = tipo_reloj
+            if tipo_reloj == "timer":
+                cfg = self.config.get("timer_multinivel", {}).get(self.nivel_actual_multinivel, {})
+                _h = cfg.get("horas", 0)
+                _m = cfg.get("minutos", 30)
+                _s = cfg.get("segundos", 0)
+                self._timer_segundos_orig = _h * 3600 + _m * 60 + _s
+            self._sync_reloj_visible()
+            if self._clock_handle:
+                self.root.after_cancel(self._clock_handle)
+                self._clock_handle = None
+            if tipo_reloj in ("timer", "cronometro"):
+                self.cronometro_activo = True
+                self.actualizar_cronometro()
+            else:
+                self.cronometro_activo = False
+            return
+
         # Verificar que los elementos custom esten definidos si esa opcion esta activa
         if self.config.get("elementos") == "custom":
             if len(self.config.get("elementos_custom", [])) != 9:
