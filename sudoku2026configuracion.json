@@ -7,8 +7,18 @@
         "segundos": 3
     },
     "top x": 3,
-    "elementos": "letras",
-    "elementos_custom": [],
+    "elementos": "custom",
+    "elementos_custom": [
+        "@",
+        "#",
+        "$",
+        "%",
+        "&",
+        "*",
+        "!",
+        "?",
+        "+"
+    ],
     "timer_multinivel": {
         "facil": {
             "horas": 0,
