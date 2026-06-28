@@ -346,6 +346,21 @@ def _gen_contar(tablero, lim=2):
     _sol([row[:] for row in tablero])
     return cont[0]
 
+def _resolver_puzzle(tablero):
+    """Resuelve el tablero in-place con backtracking. Devuelve True si encontro solucion."""
+    for r in range(9):
+        for c in range(9):
+            if tablero[r][c] == 0:
+                for n in range(1, 10):
+                    if _gen_valido(tablero, r, c, n):
+                        tablero[r][c] = n
+                        if _resolver_puzzle(tablero):
+                            return True
+                        tablero[r][c] = 0
+                return False
+    return True
+
+
 def _generar_tablero(vacios_obj):
     while True:
         sol = [[0] * 9 for _ in range(9)]
@@ -778,6 +793,9 @@ class SudokuApp:
         self.pila_eliminadas = crear_pila()
         if juego_completo(self.tablero):
             self.cronometro_activo = False
+            if self._clock_handle:
+                self.root.after_cancel(self._clock_handle)
+                self._clock_handle = None
             nombre    = self.usuario["nombre"]
             fecha_hora = datetime.now().strftime("%Y%m%dT%H%M%S")
             if self.config["nivel"] == "multinivel":
@@ -950,6 +968,7 @@ class SudokuApp:
                         self.label_segs.config(text=str(segs).zfill(2))
                         self._clock_handle = self.root.after(1000, self.actualizar_cronometro)
                     else:
+                        self._clock_handle = None
                         self.juego_iniciado = False
                         self.btn_iniciar.config(state="normal")
                     return
@@ -1049,6 +1068,9 @@ class SudokuApp:
                 _s = self.config["reloj"]["segundos"]
             self._timer_segundos_orig = _h * 3600 + _m * 60 + _s
         self._sync_reloj_visible()
+        if self._clock_handle:
+            self.root.after_cancel(self._clock_handle)
+            self._clock_handle = None
         if tipo_reloj in ("timer", "cronometro"):
             self.cronometro_activo = True
             self.actualizar_cronometro()
@@ -1101,12 +1123,15 @@ class SudokuApp:
             return
         respuesta = messagebox.askyesno("ELIMINAR JUEGO", "ESTA SEGURO DE TERMINAR EL JUEGO? SI/NO")
         if respuesta:
+            self.cronometro_activo = False
+            if self._clock_handle:
+                self.root.after_cancel(self._clock_handle)
+                self._clock_handle = None
             self.tablero = crear_tablero_vacio()
-            self.fijas = crear_matriz_fijas() 
+            self.fijas = crear_matriz_fijas()
             for i in range(9):
                 for j in range (9):
                     self.botones_tablero[i][j].config(text = "", bg = "white")
-            self.cronometro_activo = False
             self.pila_realizadas = crear_pila()
             self.pila_eliminadas = crear_pila()
             self.juego_iniciado = False
@@ -1123,29 +1148,32 @@ class SudokuApp:
             messagebox.showerror("ERROR", "NO SE HA INICIADO EL JUEGO")
             return
 
-        # Recorrer todas las celdas buscando una vacia con un valor valido
+        # Resolver el tablero actual para obtener la solucion correcta
+        solucion = [row[:] for row in self.tablero]
+        if not _resolver_puzzle(solucion):
+            messagebox.showinfo("PISTA", "NO HAY PISTAS DISPONIBLES")
+            return
+
         for fila in range(9):
             for col in range(9):
                 if self.tablero[fila][col] == 0 and not self.fijas[fila][col]:
-                    for valor in range(1, 10):
-                        if (es_valido_fila(self.tablero, fila, valor) and
-                                es_valido_columna(self.tablero, col, valor) and
-                                es_valido_cuadricula(self.tablero, fila, col, valor)):
-                            # Resaltar la celda y mostrar la sugerencia
-                            self.botones_tablero[fila][col].config(bg="yellow")
-                            messagebox.showinfo(
-                                "PISTA",
-                                "PISTA: En la fila {} columna {} puedes colocar el elemento {}".format(
-                                    fila + 1, col + 1, self._valor_a_texto(valor)))
-                            # Restaurar color blanco al cerrar el messagebox
-                            self.botones_tablero[fila][col].config(bg="white")
-                            return
+                    valor = solucion[fila][col]
+                    self.botones_tablero[fila][col].config(bg="yellow")
+                    messagebox.showinfo(
+                        "PISTA",
+                        "PISTA: En la fila {} columna {} puedes colocar el elemento {}".format(
+                            fila + 1, col + 1, self._valor_a_texto(valor)))
+                    self.botones_tablero[fila][col].config(bg="white")
+                    return
 
         messagebox.showinfo("PISTA", "NO HAY PISTAS DISPONIBLES")
 
     def ver_top(self):
         estaba_activo = self.cronometro_activo
         self.cronometro_activo = False
+        if self._clock_handle:
+            self.root.after_cancel(self._clock_handle)
+            self._clock_handle = None
 
         # Verificar si hay al menos una partida en alguno de los tres arboles
         hay_datos = (abb_facil.raiz is not None or
@@ -1328,11 +1356,19 @@ class SudokuApp:
                 h = timer_h.get()
                 m = timer_m.get()
                 s = timer_s.get()
-                if h == 0 and m == 0 and s == 0 and nivel_var.get() != "multinivel":
+                if nivel_var.get() != "multinivel" and h == 0 and m == 0 and s == 0:
                     messagebox.showerror("ERROR",
                         "El timer debe tener al menos un valor mayor a cero",
                         parent=ventana)
                     return
+                if nivel_var.get() == "multinivel":
+                    for niv in ["facil", "intermedio", "dificil"]:
+                        vh, vm, vs = ml_vars[niv]
+                        if vh.get() == 0 and vm.get() == 0 and vs.get() == 0:
+                            messagebox.showerror("ERROR",
+                                "El timer del nivel {} en multinivel debe tener al menos un valor mayor a cero".format(niv.capitalize()),
+                                parent=ventana)
+                            return
             # Validar elementos personalizados si esa opcion esta seleccionada
             if elem_var.get() == "custom":
                 valores = [e.get().strip() for e in entries_custom]
@@ -1365,7 +1401,10 @@ class SudokuApp:
             self.config["top x"]             = topx_var.get()
             with open(ARCHIVO_CONFIG, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=4, ensure_ascii=False)
-            self.label_nivel.config(text="Nivel: " + self.config["nivel"])
+            if self.juego_iniciado and self.config["nivel"] == "multinivel":
+                self.label_nivel.config(text="Nivel: multinivel ({})".format(self.nivel_actual_multinivel))
+            else:
+                self.label_nivel.config(text="Nivel: " + self.config["nivel"])
             self.reconstruir_panel_elementos()
             self._sync_reloj_visible()
             messagebox.showinfo("GUARDADO", "Configuracion guardada exitosamente",
