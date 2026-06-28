@@ -173,9 +173,9 @@ def cargar_configuracion():
 
     return config
 
-# ==============================================================================
-# Mejora 5: Top X con Arbol Binario de Busqueda (ABB)
-# ==============================================================================
+
+# Top X con Arbol Binario de Busqueda (ABB)
+
 
 class Partida:
     # Guarda los datos de una partida terminada
@@ -241,7 +241,7 @@ class ABB:
         self._en_orden(nodo.derecho, lista)
 
 
-# --- funciones para cargar y guardar los tres ABB con pickle ---
+#  funciones para cargar y guardar los tres ABB con pickle 
 
 def cargar_abbs():
     # Lee el pkl y devuelve los tres arboles. Si no existe, devuelve tres ABB vacios.
@@ -441,9 +441,9 @@ def obtener_tablero_nuevo(nivel, ventana_padre=None):
     return puzzle
 
 
-# ==============================================================================
+
 # Sistema de cuentas de usuario
-# ==============================================================================
+
 
 def cargar_usuarios():
     # Lee la lista de usuarios del archivo. Si no existe devuelve lista vacia.
